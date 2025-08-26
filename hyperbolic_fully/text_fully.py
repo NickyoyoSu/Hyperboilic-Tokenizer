@@ -19,7 +19,7 @@ import shutil
 import time
 
 ###########################################################################
-# 新增：采用Hugging Face中的文本数据集和分词器
+# NEW: Use Hugging Face text dataset and tokenizer
 ###########################################################################
 from datasets import load_dataset
 from transformers import AutoTokenizer
@@ -57,7 +57,7 @@ device = torch.device(args.device)
 
 
 ###########################################################################
-# 加载文本数据集 (示例：wikitext-2)
+# Load text dataset (Example: wikitext-2)
 ###########################################################################
 raw_datasets = load_dataset("wikitext", "wikitext-2-raw-v1")
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
@@ -66,7 +66,7 @@ def tokenize_function(examples):
     return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=256)
 
 tokenized_datasets = raw_datasets.map(tokenize_function, batched=True, remove_columns=["text"])
-#tokenized_datasets = tokenized_datasets.rename_column("input_ids", "input_ids")  # 仅重命名示例
+#tokenized_datasets = tokenized_datasets.rename_column("input_ids", "input_ids")  # Just an example of renaming
 tokenized_datasets.set_format("torch")
 
 train_dataset = tokenized_datasets["train"]
@@ -82,7 +82,7 @@ print(f"Train set: {len(train_dataset)}, Val set: {len(val_dataset)}, Test set: 
 ###########################################################################
 ###########################################################################
 from utils.hypformer_backup import HypFormer
-from utils.manifolds.hyp_layer import Optimizer  # HypFormerc Optimizer
+from utils.manifolds.hyp_layer import Optimizer  # HypFormer Optimizer
 
 class Args:
     def __init__(self):
