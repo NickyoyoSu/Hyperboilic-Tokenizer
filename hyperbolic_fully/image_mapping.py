@@ -60,7 +60,7 @@ model_name = "meta-llama/Llama-3.2-11B-Vision"  # 11B Vision model instead of 1B
 device = torch.device(DEVICE)
 processor = AutoProcessor.from_pretrained(model_name, token=hf_token)
 
-# 使用正确的模型类加载Llama-3.2-Vision
+# Use the correct model class to load Llama-3.2-Vision
 model = MllamaForConditionalGeneration.from_pretrained(
     model_name, 
     token=hf_token,
@@ -85,7 +85,7 @@ else:
         param.requires_grad = False
 
 # ====================== Load Stable Diffusion for Image Generation ======================
-# 由于Llama Vision不能生成图像，我们需要单独的模型用于图像生成
+# Since Llama Vision cannot generate images, we use a separate model for image generation.
 image_gen_model = StableDiffusionPipeline.from_pretrained(
     "stabilityai/stable-diffusion-2-1",
     torch_dtype=torch.float16,
@@ -104,34 +104,34 @@ class MultimodalMappingHead(nn.Module):
         self.num_layers = num_layers
         self.manifold = CustomLorentz()
 
-        # 多模态特有的映射层，用于处理多模态信息
+        # Multimodal-specific adapter to handle multimodal features
         self.multimodal_adapter = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         
-        # 第1层线性变换及归一化
+        # First linear layer + normalization
         self.linear1 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.norm1 = nn.LayerNorm(self.hidden_size)
         
-        # 第二层（可选）
+        # Optional second layer
         self.linear2 = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.norm2 = nn.LayerNorm(self.hidden_size)
 
-        # 超曲分类器：num_features 为 hidden_size+1（多出的1表示 time 分量）
+        # Hyperbolic classifier: num_features = hidden_size + 1 (extra time component)
         self.hyp_cls = LorentzMLR(
             self.manifold,
             num_features=self.hidden_size + 1, 
             num_classes=self.vocab_size
         )
-        # 欧氏分类器
+        # Euclidean classifier
         self.euc_cls = nn.Linear(self.hidden_size, self.vocab_size, bias=False)
 
     def lorentz_map(self, x, c_param):
         return expmap0(x, k=c_param, dim=-1)
     
     def forward(self, last_hidden_states, c_param):
-        # 首先通过多模态适配器
+        # Pass through multimodal adapter first
         x = self.multimodal_adapter(last_hidden_states)
         
-        # 标准流程处理
+        # Standard processing
         x = self.linear1(x)
         x = self.norm1(x)
         
@@ -141,7 +141,7 @@ class MultimodalMappingHead(nn.Module):
             x = self.norm2(x)
         
         if self.use_hyperbolic:
-            # 添加 time 分量，再进行超曲映射
+            # Add time component, then map to hyperbolic space
             x = self.manifold.add_time(x)
             hyper_embs = self.lorentz_map(x, c_param)
             logits = self.hyp_cls(hyper_embs)
@@ -151,7 +151,7 @@ class MultimodalMappingHead(nn.Module):
         return logits
 
 # ====================== Load COCO Dataset ======================
-print("使用COCO API加载COCO数据集...")
+print("Loading COCO dataset using COCO API...")
 
 try:
     import os
@@ -160,37 +160,37 @@ try:
     from PIL import Image
     import random
     
-    # 设置COCO数据集路径 - 根据您的实际下载位置调整
+    # Set COCO dataset path - adjust based on your actual location
     data_dir = 'coco_dataset'
     train_annotations = os.path.join(data_dir, 'annotations/captions_train2017.json')
     val_annotations = os.path.join(data_dir, 'annotations/captions_val2017.json')
     train_image_dir = os.path.join(data_dir, 'train2017')
     val_image_dir = os.path.join(data_dir, 'val2017')
     
-    # 检查数据集文件是否存在
+    # Check if dataset files exist
     if not os.path.exists(train_annotations) or not os.path.exists(train_image_dir):
-        raise FileNotFoundError(f"COCO数据集文件未找到。请确保已下载数据集到 {data_dir} 目录")
+        raise FileNotFoundError(f"COCO dataset files not found. Please ensure the dataset is downloaded to {data_dir}")
     
-    # 加载COCO API
-    print("加载COCO训练集注释...")
+    # Load COCO API
+    print("Loading COCO training annotations...")
     train_coco = COCO(train_annotations)
-    print("加载COCO验证集注释...")
+    print("Loading COCO validation annotations...")
     val_coco = COCO(val_annotations)
     
-    # 获取所有图像ID
+    # Get all image IDs
     train_ids = list(train_coco.imgs.keys())
     val_ids = list(val_coco.imgs.keys())
     
-    # 为了测试集，我们从验证集中分割
+    # For test set, split from validation set
     random.seed(args.seed)
     random.shuffle(val_ids)
     val_split = int(len(val_ids) * 0.5)
     new_val_ids = val_ids[:val_split]
     test_ids = val_ids[val_split:]
     
-    print(f"COCO数据集加载成功！训练集：{len(train_ids)}张图像，验证集：{len(new_val_ids)}张图像，测试集：{len(test_ids)}张图像")
+    print(f"COCO dataset loaded successfully! Train: {len(train_ids)} images, Val: {len(new_val_ids)} images, Test: {len(test_ids)} images")
     
-    # 创建COCO数据集类
+    # Create COCO dataset class
     class COCODataset(Dataset):
         def __init__(self, coco, img_ids, img_dir, transform=None, max_length=128):
             self.coco = coco
@@ -203,34 +203,34 @@ try:
             return len(self.img_ids)
         
         def __getitem__(self, idx):
-            # 获取图像ID和图像路径
+            # Get image ID and path
             img_id = self.img_ids[idx]
             img_info = self.coco.loadImgs(img_id)[0]
             img_path = os.path.join(self.img_dir, img_info['file_name'])
             
-            # 加载图像
+            # Load image
             try:
                 image = Image.open(img_path).convert('RGB')
             except Exception as e:
-                print(f"无法加载图像 {img_path}: {e}")
-                # 创建空白图像作为替代
+                print(f"Failed to load image {img_path}: {e}")
+                # Create a blank image as fallback
                 image = Image.new('RGB', (args.image_size, args.image_size), color='black')
             
-            # 获取图像描述
+            # Get captions
             ann_ids = self.coco.getAnnIds(imgIds=img_id)
             anns = self.coco.loadAnns(ann_ids)
             
-            # 随机选择一条描述
+            # Randomly pick one caption
             if anns and 'caption' in anns[0]:
                 caption = random.choice([ann['caption'] for ann in anns])
             else:
-                caption = "无描述"
+                caption = "No description"
             
-            # 应用图像转换
+            # Apply transforms
             if self.transform:
                 image = self.transform(image)
             
-            # 文本编码
+            # Encode text
             encoding = tokenizer(
                 caption,
                 truncation=True,
@@ -246,17 +246,17 @@ try:
                 "image_id": img_id
             }
     
-    # 创建数据集
+    # Build datasets
     train_dataset = COCODataset(train_coco, train_ids, train_image_dir, transform=transform)
     val_dataset = COCODataset(val_coco, new_val_ids, val_image_dir, transform=transform)
     test_dataset = COCODataset(val_coco, test_ids, val_image_dir, transform=transform)
     
-    # 创建数据加载器
+    # Build data loaders
     train_loader = DataLoader(
         train_dataset, 
         batch_size=args.batch_size, 
         shuffle=True,
-        num_workers=4,  # 可以增加如果您的系统支持
+        num_workers=4, 
         pin_memory=torch.cuda.is_available(),
         drop_last=True
     )
@@ -279,22 +279,20 @@ try:
         drop_last=True
     )
     
-    print(f"数据加载器创建成功！批次大小: {args.batch_size}")
+    print(f"Data loaders created successfully! Batch size: {args.batch_size}")
 except Exception as e:
-    print(f"COCO数据集加载失败: {e}")
-    traceback.print_exc()  # 打印详细错误信息
-    
-    # 保留合成数据集作为后备方案
-    print("无法加载COCO数据集，创建合成数据集进行测试...")
+    print(f"Failed to load COCO dataset: {e}")
+    traceback.print_exc()  
+    print("Unable to load COCO dataset, creating synthetic dataset for testing instead...")
 
-# ==================== 数据批处理 ====================
+# ==================== Data Batching ====================
 def get_batches(pairs, batch_size):
-    """将数据划分为批次"""
+    """Divide dataset into batches"""
     for i in range(0, len(pairs), batch_size):
         yield pairs[i:i+batch_size]
 
 def compute_lm_loss(logits, labels):
-    """计算语言模型损失"""
+    """Compute language modeling loss"""
     loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
     vocab_size = logits.size(-1)
     logits_2d = logits.view(-1, vocab_size)
@@ -302,7 +300,7 @@ def compute_lm_loss(logits, labels):
     loss = loss_fct(logits_2d, labels_2d)
     return loss
 
-# ====================== 训练模型 ======================
+# ====================== Training ======================
 def train_model():
     global best_loss
     for epoch in range(1, NUM_EPOCHS + 1):
@@ -311,22 +309,22 @@ def train_model():
         epoch_start_time = time.time()
         total_loss, count = 0.0, 0
 
-        # 训练循环
+        # Training loop
         for batch_pairs in tqdm(get_batches(train_pairs, BATCH_SIZE), total=len(train_pairs)//BATCH_SIZE, desc=f"Training Epoch {epoch}"):
             optimizer.zero_grad()
             
-            # 处理多模态输入
+            # Process multimodal inputs
             inputs = prepare_multimodal_inputs(batch_pairs, processor, MAX_LENGTH).to(device)
             labels = prepare_labels(inputs).to(device)
             
-            # 前向传播
+            # Forward pass
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 outputs = model(**inputs, output_hidden_states=True, return_dict=True)
-                # 使用自定义映射头
+                # Use custom mapping head
                 logits = custom_lm_head(outputs.hidden_states[-1], learnable_curvature)
                 loss = compute_lm_loss(logits, labels)
             
-            # 反向传播
+            # Backward pass
             loss.backward()
             clip_grad_norm_(
                 [p for p in model.parameters() if p.requires_grad] + 
@@ -335,18 +333,18 @@ def train_model():
                 max_norm=1.0
             )
             
-            # 更新参数
+            # Update parameters
             optimizer.step()
             scheduler.step()
             
-            # 确保曲率参数在有意义的范围内
+            # Keep curvature parameter within a valid range
             with torch.no_grad():
                 learnable_curvature.clamp_(1e-3, 1e1)
                 
             total_loss += loss.item() * len(batch_pairs)
             count += len(batch_pairs)
 
-        # 计算并记录指标
+        # Calculate and log metrics
         avg_loss = total_loss / count if count > 0 else 9999.0
         ppl = math.exp(avg_loss) if avg_loss < 20 else float("inf")
         epoch_time = time.time() - epoch_start_time
@@ -355,7 +353,7 @@ def train_model():
         val_loss = evaluate_model(val_pairs, phase="Validation")
         save_model(epoch, val_loss, math.exp(val_loss) if val_loss < 20 else float("inf"))
 
-# ====================== 评估函数 ======================
+# ====================== Evaluation ======================
 def evaluate_model(pairs, phase="Val"):
     model.eval()
     custom_lm_head.eval()
@@ -363,16 +361,16 @@ def evaluate_model(pairs, phase="Val"):
     
     with torch.no_grad():
         for batch_pairs in tqdm(get_batches(pairs, BATCH_SIZE), total=len(pairs)//BATCH_SIZE, desc=f"Evaluating {phase}"):
-            # 处理输入
+            # Process inputs
             inputs = prepare_multimodal_inputs(batch_pairs, processor, MAX_LENGTH).to(device)
             labels = prepare_labels(inputs).to(device)
             
-            # 前向传播
+            # Forward pass
             outputs = model(**inputs, output_hidden_states=True, return_dict=True)
             hidden_states = outputs.hidden_states[-1]
             logits = custom_lm_head(hidden_states, learnable_curvature)
             
-            # 计算损失
+            # Compute loss
             loss_val = compute_lm_loss(logits, labels)
             total_loss += loss_val.item() * len(batch_pairs)
             count += len(batch_pairs)
@@ -382,23 +380,23 @@ def evaluate_model(pairs, phase="Val"):
     print(f"{phase} - loss={avg_loss:.4f}, PPL={ppl:.2f}")
     return avg_loss
 
-# ====================== 基于图像生成文本 ======================
+# ====================== Image-to-Text ======================
 def generate_text_from_image(image_path, max_len=100):
-    """输入图像，输出生成的文本"""
+    """Input an image, output generated description"""
     model.eval()
     custom_lm_head.eval()
     
-    # 加载图像
+    # Load image
     if image_path.startswith('http'):
         response = requests.get(image_path)
         image = Image.open(BytesIO(response.content))
     else:
         image = Image.open(image_path)
     
-    # 处理图像输入
+    # Process image input
     inputs = processor(images=image, text="Describe this image:", return_tensors="pt").to(device)
     
-    # 生成文本
+    # Generate text
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
@@ -408,36 +406,36 @@ def generate_text_from_image(image_path, max_len=100):
             top_p=0.9,
         )
     
-    # 解码输出
+    # Decode output
     generated_text = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
     return generated_text
 
-# ====================== 基于文本生成图像 ======================
+# ====================== Text-to-Image ======================
 def generate_image_from_text(text_prompt, output_path=None):
-    """输入文本提示，生成图像"""
-    # 使用Stable Diffusion生成图像
+    """Input a text prompt, generate an image"""
+    # Use Stable Diffusion to generate image
     with torch.autocast(device_type="cuda", dtype=torch.float16):
         image = image_gen_model(text_prompt, guidance_scale=7.5).images[0]
     
-    # 保存图像
+    # Save image if path provided
     if output_path:
         image.save(output_path)
     
     return image
 
-# ====================== 主执行流程 ======================
+# ====================== Main ======================
 if __name__ == "__main__":
     print(f"USE_HYPERBOLIC = {USE_HYPERBOLIC}")
     print(f"USE_LORA = {USE_LORA}")
     
-    # 训练模型
+    # Train model
     train_model()
     
-    # 测试集评估
+    # Evaluate on test set
     print("\n=== Testing ===")
     evaluate_model(test_pairs, phase="Test")
     
-    # 演示多模态能力：输入图像，输出文本描述
+    # Demo: Image-to-text generation
     print("\n=== Image-to-Text Generation ===")
     sample_image = test_pairs[0]["image"]
     sample_image_path = "sample_image.jpg"
@@ -445,7 +443,7 @@ if __name__ == "__main__":
     generated_description = generate_text_from_image(sample_image_path)
     print(f"Generated description: {generated_description}")
     
-    # 演示文本到图像生成
+    # Demo: Text-to-image generation
     print("\n=== Text-to-Image Generation ===")
     sample_text_prompt = "A beautiful landscape with mountains and a lake at sunset"
     generated_image = generate_image_from_text(sample_text_prompt, "generated_image.jpg")
