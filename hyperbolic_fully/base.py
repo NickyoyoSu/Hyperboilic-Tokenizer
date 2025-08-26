@@ -20,11 +20,11 @@ from utils.manifolds.hyp_layer import Optimizer
 import shutil
 from huggingface_hub import hf_hub_download
 
-# ========== 替换掉 HypFormer、双曲优化器、manifolds等 ==========
+# ========== Replace HypFormer, hyperbolic optimizer, manifolds, etc. ==========
 from utils.improved_model import Encoder, Decoder
 from utils.quantize.lookupFree import LFQ
 
-# 标准PyTorch优化器
+# Standard PyTorch optimizer
 from torch.optim import Adam
 
 # ===================== Argument Parser ======================
@@ -59,15 +59,14 @@ ddconfig = {
     "out_ch": 3,
     "in_channels": 3,
     "num_res_blocks": 2,
-    "z_channels": 18,  # 与embedding_dim对应
+    "z_channels": 18,  # Corresponds to embedding_dim
     "ch_mult": (1, 2, 2, 4),
     "resolution": args.image_size,
     "double_z": False,
 }
 cnn_encoder = Encoder(**ddconfig).to(device).eval()
 
-
-# 根据自己的路径加载预训练好的codebook (如有)
+# Load pretrained codebook from your own path (if available)
 lfq = LFQ(codebook_size=args.vocab_size, dim=18).to(device)
 ckpt_path = hf_hub_download(repo_id="TencentARC/Open-MAGVIT2-Tokenizer-262144-Video", filename="video_128_262144.ckpt")
 ckpt = torch.load(ckpt_path, map_location=device)
@@ -82,24 +81,24 @@ class BaselineTransformer(nn.Module):
     def __init__(self, embed_dim, n_heads, n_layers, vocab_size, dropout=0.1):
         super().__init__()
         self.embed_dim = embed_dim
-        # 使用TransformerEncoder来模拟HypFormer逻辑
+        # Use TransformerEncoder to simulate HypFormer logic
         enc_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=n_heads, dim_feedforward=4*embed_dim, dropout=dropout)
         self.transformer_encoder = nn.TransformerEncoder(enc_layer, num_layers=n_layers)
         self.linear_out = nn.Linear(embed_dim, vocab_size)
 
     def forward(self, x_embed: torch.Tensor):
         # x_embed: (B, seq_len, embed_dim)
-        # PyTorch nn.Transformer默认期望 (seq_len, B, embed_dim)，需要转置
+        # PyTorch nn.Transformer expects (seq_len, B, embed_dim), so we transpose
         x_trans = x_embed.transpose(0, 1)  # -> (seq_len, B, embed_dim)
-        # 通过transformer编码
+        # Pass through transformer encoder
         encoded = self.transformer_encoder(x_trans)  # (seq_len, B, embed_dim)
-        # 转回 (B, seq_len, embed_dim)
+        # Transpose back to (B, seq_len, embed_dim)
         encoded = encoded.transpose(0, 1)
-        # 最后映射到 vocab
+        # Finally map to vocab size
         out = self.linear_out(encoded)  # (B, seq_len, vocab_size)
         return out
 
-# ========== 实例化 BaselineTransformer ==========
+# ========== Instantiate BaselineTransformer ==========
 model = BaselineTransformer(
     embed_dim=18,
     n_heads=args.num_heads,
@@ -109,6 +108,7 @@ model = BaselineTransformer(
 ).to(device)
 
 embedding_layer = nn.Embedding(num_embeddings=args.vocab_size, embedding_dim=18).to(device)
+
 # ========= Load CIFAR-10 Dataset (torchvision) ==============
 transform = transforms.Compose([
     transforms.RandomResizedCrop(args.image_size, scale=(0.8, 1.0)),  # random crop
@@ -134,8 +134,6 @@ train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=Tru
 val_loader   = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 test_loader  = DataLoader(cifar10_test, batch_size=args.batch_size, shuffle=False)
 
-
-
 # ========== Optimizer & Loss ==================
 optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
 loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
@@ -150,7 +148,7 @@ for epoch in range(args.epochs):
         images, _ = batch
         images = images.to(device)
 
-        # 图像编码 + 量化
+        # Image encoding + quantization
         with torch.no_grad():
             features = cnn_encoder(images)
             _, _, tokenized_x_raw = lfq(features)
@@ -162,9 +160,8 @@ for epoch in range(args.epochs):
         
         b, seq_len, vocab_size = output.shape
         output = output[:, :-1, :].reshape(b * (seq_len - 1), vocab_size)
-        
 
-        # shift 1 仅作演示
+        # Shift by 1 just for demonstration
         target = tokenized_x[:, 1:].reshape(-1)
         
         optimizer.zero_grad()
@@ -178,7 +175,7 @@ for epoch in range(args.epochs):
     avg_loss = total_loss / total_tokens if total_tokens else 0.0
     train_ppl = math.exp(avg_loss) if avg_loss < 10 else float("inf")
 
-    # 验证
+    # Validation
     model.eval()
     val_loss_sum = 0
     val_tokens_sum = 0
@@ -193,7 +190,7 @@ for epoch in range(args.epochs):
             tokenized_x_embed = embedding_layer(tokenized_x)
             out_val = model(tokenized_x_embed)
             b_v, seq_len_v, vsize_v = out_val.shape
-            out_val = out_val [:, :-1, :].reshape(b * (seq_len - 1), vocab_size)
+            out_val = out_val[:, :-1, :].reshape(b * (seq_len - 1), vocab_size)
 
             tgt_val = tokenized_x[:, 1:].reshape(-1)
             loss_v = loss_fn(out_val, tgt_val)
@@ -220,7 +217,7 @@ with torch.no_grad():
         tokenized_x_embed = embedding_layer(tokenized_x)
         out_test = model(tokenized_x_embed)
         b_t, seq_len_t, vsize_t = out_test.shape
-        out_test = out_test [:, :-1, :].reshape(b * (seq_len - 1), vocab_size)
+        out_test = out_test[:, :-1, :].reshape(b * (seq_len - 1), vocab_size)
 
         tgt_test = tokenized_x[:, 1:].reshape(-1)
         loss_t = loss_fn(out_test, tgt_test)
