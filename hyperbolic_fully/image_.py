@@ -27,7 +27,6 @@ if torch.cuda.is_available():
 # **1️⃣ Define Encoder as LFQ Input (from improved_model)**
 # ========================
 
-
 ddconfig = {
     "ch": 64,
     "out_ch": 3,
@@ -35,7 +34,7 @@ ddconfig = {
     "num_res_blocks": 2,
     "z_channels": 12,
     "ch_mult": (1, 2, 2, 4),
-    "resolution": 64,  # 如果想保留32×32原尺寸，可改成32并相应调整transforms
+    "resolution": 64,  # If you want to keep original 32x32 size, set to 32 and adjust transforms accordingly
     "double_z": False,
 }
 
@@ -46,7 +45,7 @@ cnn_encoder = Encoder(**ddconfig).to(device).eval()
 # **2️⃣ Load CIFAR-10 Dataset (torchvision)**
 # ========================
 transform = transforms.Compose([
-    transforms.Resize((64, 64)),  # 调整到 64x64
+    transforms.Resize((64, 64)),  # Resize to 64x64
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5),
                          (0.5, 0.5, 0.5))
@@ -55,7 +54,7 @@ transform = transforms.Compose([
 cifar10_train = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
 cifar10_test  = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
 
-# 手动拆分训练集，留一部分做验证集 (例如90% train, 10% val)
+# Manually split the training set: reserve part as validation set (e.g., 90% train, 10% val)
 train_size = int(0.9 * len(cifar10_train))
 val_size   = len(cifar10_train) - train_size
 train_dataset, val_dataset = random_split(cifar10_train, [train_size, val_size], generator=torch.Generator().manual_seed(seed))
@@ -72,7 +71,7 @@ test_loader  = DataLoader(cifar10_test, batch_size=32, shuffle=False)
 
 lfq = LFQ(codebook_size=2**12, dim=12).to(device).eval()
 
-# 注意：这里将 embedding_dim 从原来的 19 改为 20，以保证能被注意力头 (4) 整除
+# NOTE: Change embedding_dim from 19 to 20 to ensure it can be divided evenly by attention heads (4)
 embedding_layer = nn.Embedding(num_embeddings=2**12, embedding_dim=20).to(device)
 
 # ========================
@@ -128,7 +127,7 @@ class SimpleTransformer(nn.Module):
         return out  # (B, SeqLen, out_channels)
 
 model = SimpleTransformer(
-    in_channels=20,     # 输入维度必须与 embedding_layer 输出一致
+    in_channels=20,     # Input dimension must match embedding_layer output
     out_channels=2**12,
     nhead=4,
     num_layers=6,
@@ -143,27 +142,27 @@ model = SimpleTransformer(
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 loss_fn = nn.CrossEntropyLoss()
 
-for epoch in range(20):  # 训练10个epoch
+for epoch in range(20):  # Train for 20 epochs
     model.train()
     total_loss = 0
     total_tokens = 0
 
     for batch in train_loader:
-        images, _ = batch  # CIFAR-10 的标签暂不使用
+        images, _ = batch  # CIFAR-10 labels are not used
         images = images.to(device)  # (B, 3, 64, 64)
 
         with torch.no_grad():
             features = cnn_encoder(images)         # (B, 18, H, W)
-            _, _, tokenized_x = lfq(features)        # tokenized_x: (B, 18, H, W)
-            # 展平为 (B, seq_len)
+            _, _, tokenized_x = lfq(features)     # tokenized_x: (B, 18, H, W)
+            # Flatten into (B, seq_len)
             tokenized_x = tokenized_x.view(images.size(0), -1).long()
-            # 嵌入：输出 (B, seq_len, 20)
+            # Embedding: output (B, seq_len, 20)
             tokenized_x_embed = embedding_layer(tokenized_x)
 
-        # 模型前向输出，形状 (B, L_out, vocab_size)
+        # Model forward pass, shape: (B, L_out, vocab_size)
         output = model(tokenized_x_embed)
         b, L_out, vocab_size = output.shape
-        # 目标序列长度不能超过 tokenized_x 的长度-1
+        # Target sequence length must not exceed tokenized_x length - 1
         L_target = min(L_out, tokenized_x.shape[1] - 1)
         output = output[:, :L_target, :].reshape(b * L_target, vocab_size)
         target = tokenized_x[:, 1:1+L_target].reshape(b * L_target)
@@ -180,7 +179,7 @@ for epoch in range(20):  # 训练10个epoch
     train_perplexity = math.exp(avg_loss)
     print(f"Epoch {epoch+1}, Train Loss: {avg_loss:.4f}, Perplexity: {train_perplexity:.4f}")
 
-# ========================
+    # ========================
     # **6️⃣ Validation Loop (Next Token Prediction)**
     # ========================
     model.eval()
