@@ -25,7 +25,7 @@ parser.add_argument('--device', type=str, default='cuda:0' if torch.cuda.is_avai
 parser.add_argument('--image_size', type=int, default=64, help='Resize frames to this size')
 parser.add_argument('--num_frames', type=int, default=8, help='Number of frames per video clip')
 parser.add_argument('--batch_size', type=int, default=4, help='Batch size for training')
-# --data_dir 用于存放 UCF101 数据集的帧图片（假设组织结构符合 UCF101 要求）
+# --data_dir stores the frame images for UCF101 dataset (assuming the directory structure follows UCF101 standard)
 parser.add_argument('--data_dir', type=str, default='./ucf101_frames', help='Path to UCF101 frames directory')
 parser.add_argument('--annotation_path', type=str, default='./ucf101_annotations', help='Path to UCF101 annotation files')
 parser.add_argument('--vocab_size', type=int, default=2**18, help='Vocabulary size')
@@ -47,25 +47,25 @@ if torch.cuda.is_available():
 
 device = torch.device(args.device)
 
-# ========= 定义视频预处理 ==========
-# 注意：UCF101 数据集中的视频原始格式为 "TCHW"（默认），这里我们将其转换为 (C, T, H, W)
+# ========= Define video preprocessing ==========
+# Note: The original format of UCF101 videos is "TCHW" (by default), here we convert it to (C, T, H, W)
 video_transform = transforms.Compose([
     transforms.Resize((args.image_size, args.image_size)),
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-    # 如果 UCF101 返回的是 (T, C, H, W)，这里再转换为 (C, T, H, W)
+    # If UCF101 returns (T, C, H, W), convert to (C, T, H, W)
     transforms.Lambda(lambda x: x.permute(1, 0, 2, 3))
 ])
 
-# ========= 使用 torchvision.datasets.UCF101 构建数据集 ==========
-# UCF101 的 API 参数包括：
-#   - root：视频数据目录（假设目录下包含 train/、val/、test/ 子文件夹，每个类别为一个文件夹）
-#   - annotation_path：标注文件所在目录（下载后解压标注文件）
-#   - frames_per_clip：每个视频剪辑的帧数
-#   - step_between_clips：剪辑间隔
-#   - fold：选择哪个折（1-3）
-#   - train：True 表示训练集，否则为测试集
-#   - transform：这里传入 video_transform
+# ========= Build dataset using torchvision.datasets.UCF101 ==========
+# UCF101 API parameters include:
+#   - root: directory containing video data (assumes subfolders train/, val/, test/ for each category)
+#   - annotation_path: directory containing annotation files (download and unzip annotations)
+#   - frames_per_clip: number of frames per video clip
+#   - step_between_clips: step size between clips
+#   - fold: choose which fold (1-3)
+#   - train: True for training set, False for test set
+#   - transform: pass in video_transform
 ucf101_train_full = UCF101(
     root=os.path.join(args.data_dir, "train"),
     annotation_path=args.annotation_path,
@@ -74,9 +74,9 @@ ucf101_train_full = UCF101(
     fold=1,
     train=True,
     transform=video_transform,
-    output_format="TCHW"  # 输出格式为 TCHW
+    output_format="TCHW"  # Output format is TCHW
 )
-# 将训练集划分为训练集和校准集（例如 80% / 20%）
+# Split training set into training and calibration subsets (e.g. 80% / 20%)
 train_size = int(0.8 * len(ucf101_train_full))
 cal_size = len(ucf101_train_full) - train_size
 train_dataset, cal_dataset = random_split(ucf101_train_full, [train_size, cal_size])
@@ -98,14 +98,14 @@ test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False
 
 print(f"Train set: {len(train_dataset)} clips, Cal set: {len(cal_dataset)} clips, Test set: {len(test_dataset)} clips")
 
-# ========= 初始化视频编码器 ==========
-# improved video model 的 Encoder 接收 5D 输入 (B, C, T, H, W)
+# ========= Initialize video encoder ==========
+# Encoder from improved video model takes 5D input (B, C, T, H, W)
 ddconfig = {
     "ch": 64,
     "out_ch": 3,
     "in_channels": 3,
     "num_res_blocks": 2,
-    "z_channels": 18,  # 输出特征的通道数
+    "z_channels": 18,  # Number of output feature channels
     "ch_mult": (1, 2, 2, 4),
     "resolution": args.image_size,
     "double_z": False,
@@ -113,8 +113,8 @@ ddconfig = {
 
 video_encoder = Encoder(**ddconfig).to(device).eval()
 
-# ========= 初始化 LFQ 模块 ==========
-# LFQ 的 dim 参数设置为 18 以匹配视频编码器输出的 z_channels
+# ========= Initialize LFQ module ==========
+# LFQ dim parameter is set to 18 to match video encoder output z_channels
 lfq = LFQ(codebook_size=args.vocab_size, dim=18).to(device)
 ckpt_path = hf_hub_download(repo_id="TencentARC/Open-MAGVIT2-Tokenizer-262144-Video", filename="video_128_262144.ckpt")
 ckpt = torch.load(ckpt_path, map_location=device)
@@ -124,7 +124,7 @@ elif "codebook" in ckpt:
     lfq.register_buffer("codebook", ckpt["codebook"])
 lfq.eval()
 
-# ========= 定义 HypFormer 模型 ==========
+# ========= Define HypFormer model ==========
 class ArgsH:
     def __init__(self):
         self.k_in = 1.0
@@ -152,10 +152,10 @@ model = HypFormer(
     args=hyp_args
 ).to(device)
 
-# 为视频离散化准备一个嵌入层，embedding_dim 与视频编码器输出相匹配（18）
+# Prepare an embedding layer for video discretization; embedding_dim matches video encoder output (18)
 embedding_layer = nn.Embedding(num_embeddings=args.vocab_size, embedding_dim=18).to(device)
 
-# ========= 训练循环 ==========
+# ========= Training loop ==========
 optimizer = Optimizer(model, args)
 loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
 
@@ -165,24 +165,24 @@ for epoch in range(args.epochs):
     total_tokens = 0
 
     for batch in train_loader:
-        # UCF101 返回 (video, audio, label)，我们只取视频部分，视频形状为 (T, C, H, W)
-        # 转换为 (C, T, H, W)（我们的视频编码器要求 5D 输入，需增加 batch 维度）
+        # UCF101 returns (video, audio, label), we only take the video part, with shape (T, C, H, W)
+        # Convert to (C, T, H, W) (our video encoder requires 5D input, so we add a batch dimension)
         videos, _, _ = batch
         # videos: [B, T, C, H, W] -> rearrange to [B, C, T, H, W]
         videos = videos.permute(0, 2, 1, 3, 4).to(device)
 
         with torch.no_grad():
-            # Encoder 输出形状例如 (B, 18, T', H', W')
+            # Encoder output shape e.g. (B, 18, T', H', W')
             features = video_encoder(videos)
             quantized, entropy_aux_loss, tokenized_x_raw = lfq(features)
-            # 假设 tokenized_x_raw 的形状为 (B, T', H', W')，展平为 token 序列 (B, L)
+            # Assume tokenized_x_raw has shape (B, T', H', W'), flatten to token sequence (B, L)
             tokenized_x = tokenized_x_raw.view(videos.size(0), -1).long()
             tokenized_x_embed = embedding_layer(tokenized_x)
 
-        output = model(tokenized_x_embed)  # 输出形状 (B, L, vocab_size)
+        output = model(tokenized_x_embed)  # Output shape (B, L, vocab_size)
         b, seq_len, vocab_size = output.shape
         output = output.view(b * seq_len, vocab_size)
-        # 简单采用后续 token 作为目标（序列右移1）
+        # Simply use the next token as target (right-shifted sequence by 1)
         target = tokenized_x[:, 1:1+seq_len].reshape(b * seq_len)
         loss = loss_fn(output, target)
 
@@ -197,7 +197,7 @@ for epoch in range(args.epochs):
     train_perplexity = math.exp(avg_loss)
     print(f"Epoch {epoch + 1}, Loss: {avg_loss:.4f}, Train PPL: {train_perplexity:.4f}")
 
-# ========= 校准（calibration）循环 ==========
+# ========= Calibration loop ==========
 model.eval()
 cal_total_loss = 0
 cal_total_tokens = 0
@@ -221,7 +221,7 @@ cal_avg_loss = cal_total_loss / cal_total_tokens
 cal_perplexity = math.exp(cal_avg_loss)
 print(f"Cal Perplexity: {cal_perplexity:.4f}")
 
-# ========= 测试循环 ==========
+# ========= Test loop ==========
 model.eval()
 total_loss = 0
 total_tokens = 0
@@ -244,4 +244,3 @@ with torch.no_grad():
 test_avg_loss = total_loss / total_tokens
 test_perplexity = math.exp(test_avg_loss)
 print(f"Test Perplexity: {test_perplexity:.4f}")
-
