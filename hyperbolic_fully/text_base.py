@@ -66,8 +66,8 @@ print(f"Train set: {len(train_dataset)}, Val set: {len(val_dataset)}, Test set: 
 # ========== Baseline Transformer Model ==========
 def generate_square_subsequent_mask(seq_len):
     """
-    生成 (seq_len, seq_len) 的下三角boolean矩阵：
-    True 表示屏蔽，False 表示可见。
+    Generate a (seq_len, seq_len) lower-triangular boolean mask:
+    True = masked, False = visible.
     """
     mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
     return mask
@@ -87,21 +87,21 @@ class BaselineTransformer(nn.Module):
 
     def forward(self, x_embed):
         """
-        x_embed: 形状 [batch_size, seq_len, embed_dim]
-        这里为自回归添加mask，让token只看到它自己以及更靠前的位置
+        x_embed: shape [batch_size, seq_len, embed_dim]
+        Add a causal mask for autoregressive training, so tokens only see themselves and previous positions.
         """
         b, seq_len, _ = x_embed.size()
-        # 生成下三角形mask
+        # Generate lower-triangular mask
         causal_mask = generate_square_subsequent_mask(seq_len).to(x_embed.device)
 
-        # 在PyTorch 2.0+里，可以直接mask=causal_mask; 某些老版本里是src_mask=...
+        # In PyTorch 2.0+, we can use mask=causal_mask; in older versions, use src_mask=...
         encoded = self.transformer_encoder(x_embed, mask=causal_mask)
         out = self.linear_out(encoded)
         return out
 
 # =========== Build Model ===========
 vocab_size = tokenizer.vocab_size
-embed_dim = 128  # 与 tokenizer 时的 max_length 无关，这里是嵌入的维度
+embed_dim = 128  # Embedding dimension (not related to tokenizer max_length)
 model = BaselineTransformer(
     embed_dim = embed_dim,
     n_heads   = 2,
@@ -124,7 +124,7 @@ for epoch in range(args.epochs):
     total_loss = 0
     total_tokens = 0
 
-    # 使用tqdm包装train_loader，显示进度条
+    # Wrap train_loader with tqdm to display progress bar
     progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=False)
 
     for batch in progress_bar:
@@ -146,7 +146,7 @@ for epoch in range(args.epochs):
         total_loss += loss.item() * target.numel()
         total_tokens += target.numel()
 
-        # 进度条上更新当前平均损失
+        # Update the progress bar with the current average loss
         if total_tokens > 0:
             current_loss = total_loss / total_tokens
             progress_bar.set_postfix(loss=f"{current_loss:.4f}")
