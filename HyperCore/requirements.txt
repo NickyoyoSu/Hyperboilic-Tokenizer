@@ -72,7 +72,7 @@ fonttools==4.57.0
 frozenlist==1.5.0
 fsspec==2023.6.0
 ftfy==6.3.1
-geoopt==0.5.0
+geoopt==0.5.1
 gitdb==4.0.12
 GitPython==3.1.44
 google-api-core==2.24.2
