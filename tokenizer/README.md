@@ -196,6 +196,22 @@ Two alternative polar variants are available:
 
 To switch tokenizers, edit `models/vqvae_hyp.py` where the tokenizer is instantiated and select the desired class and arguments (the code already contains commented examples showing how to plug them in). Re-run training.
 
+## Tokenization Structure and GGBall Comparison (结构说明与对比)
+
+**Tokenizer structure in this repo (VQ-VAE, Lorentz model by default)**
+
+- `EncoderLorentz` maps Euclidean features onto the Lorentz manifold ((C+1)-dimensional vectors: C spatial + 1 time component).（将欧氏特征映射到包含时间分量的 Lorentz 流形）
+- `StandardHyperbolicQuantizer` holds a Lorentz codebook (`nn.Embedding`), uses hyperbolic distance for nearest-neighbor lookup, chunks distance computation to save memory, and applies STE for gradients.（维护双曲码本并用距离量化）
+- Discrete indices are the “tokens” that drive `DecoderLorentz` reconstruction, while perplexity/codebook usage summarize token statistics.（离散索引用于重建，并统计困惑度/使用率）
+- `VectorQuantizer` / `ClusterAwareVectorQuantizer` use polar decomposition (radius + angle), still mapping continuous hyperbolic features to discrete codebook indices.（极坐标拆分但仍是离散量化）
+
+**Differences vs. GGBall: Graph Generative Model on Poincaré Ball (tokenization angle)**
+
+- GGBall focuses on **graph generation**, learning continuous node/structure embeddings on the Poincaré ball and using hyperbolic geometry to model hierarchical/graph connectivity.（核心是图生成与连续嵌入）
+- Its representation is **continuous coordinates** in Poincaré space, without an explicit VQ/VAE codebook, so it does not emphasize discrete “token IDs.”（无显式离散码本）
+- This repo’s tokenizer targets **compression/discretization** with VQ-style codebooks, while GGBall emphasizes **structural generation** with continuous hyperbolic points.（目标侧重不同）
+- Both operate in hyperbolic space but use different models (Lorentz here vs. Poincaré in GGBall).（模型选择不同）
+
 ## Important Arguments (VQ-VAE)
 
 - Model: `--n_hiddens`, `--n_residual_layers`, `--n_embeddings`, `--beta`, `--initial_c`, `--adaptive_c`
