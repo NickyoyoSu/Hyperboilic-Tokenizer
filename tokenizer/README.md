@@ -196,21 +196,21 @@ Two alternative polar variants are available:
 
 To switch tokenizers, edit `models/vqvae_hyp.py` where the tokenizer is instantiated and select the desired class and arguments (the code already contains commented examples showing how to plug them in). Re-run training.
 
-## Tokenization Structure (解读) & GGBall 对比
+## Tokenization Structure and GGBall Comparison (解读)
 
-**本仓库 tokenizer 的结构（VQ-VAE，默认 Lorentz 模型）**
+**Tokenizer structure in this repo (VQ-VAE, Lorentz model by default)**
 
-- `EncoderLorentz` 将欧氏特征映射到 Lorentz 流形（输出包含时间分量的 C+1 维向量）。
-- `StandardHyperbolicQuantizer` 作为默认量化器，维护一个 Lorentz 码本（`nn.Embedding`），用双曲距离选择最近邻；距离计算按块切分以降低显存占用，并用 STE 让梯度回传。
-- 量化后的离散索引即为 “token”，用于驱动 `DecoderLorentz` 重建；同时输出 perplexity、codebook usage 等统计。
-- `VectorQuantizer` / `ClusterAwareVectorQuantizer` 走极坐标分解（半径 + 角度），本质上仍是将连续双曲表示映射到离散码本索引。
+- `EncoderLorentz` maps Euclidean features onto the Lorentz manifold (C+1 vectors with a time component).（将欧氏特征映射到包含时间分量的 Lorentz 流形）
+- `StandardHyperbolicQuantizer` holds a Lorentz codebook (`nn.Embedding`), uses hyperbolic distance for nearest-neighbor lookup, chunks distance computation to save memory, and applies STE for gradients.（维护双曲码本并用距离量化）
+- Discrete indices are the “tokens” that drive `DecoderLorentz` reconstruction, while perplexity/codebook usage summarize token statistics.（离散索引用于重建，并统计困惑度/使用率）
+- `VectorQuantizer` / `ClusterAwareVectorQuantizer` use polar decomposition (radius + angle), still mapping continuous hyperbolic features to discrete codebook indices.（极坐标拆分但仍是离散量化）
 
-**与 GGBall: Graph Generative Model on Poincaré Ball 的差异（tokenization 角度）**
+**Differences vs. GGBall: Graph Generative Model on Poincaré Ball (tokenization angle)**
 
-- GGBall 的核心是 **图生成**：在 Poincaré Ball 上为节点/结构学习连续嵌入，并基于双曲几何建模图结构概率。
-- 其表示是 **连续坐标**（点在 Poincaré Ball 上），并不引入显式的 VQ/VAE 离散码本，因此严格意义上不强调 “token IDs” 的离散量化过程。
-- 本仓库 tokenizer 的目标是 **压缩与离散化**（VQ-VAE），强调 codebook/量化/索引；而 GGBall 更侧重 **结构生成** 与连续双曲表示。
-- 两者都在双曲空间中建模，但模型选择不同（本仓库默认 Lorentz；GGBall 采用 Poincaré Ball）。
+- GGBall focuses on **graph generation**, learning continuous node/structure embeddings on the Poincaré ball and using hyperbolic geometry to model structure.（核心是图生成与连续嵌入）
+- Its representation is **continuous coordinates** in Poincaré space, without an explicit VQ/VAE codebook, so it does not emphasize discrete “token IDs.”（无显式离散码本）
+- This repo’s tokenizer targets **compression/discretization** with VQ-style codebooks, while GGBall emphasizes **structural generation** with continuous hyperbolic points.（目标侧重不同）
+- Both operate in hyperbolic space but use different models (Lorentz here vs. Poincaré in GGBall).（模型选择不同）
 
 ## Important Arguments (VQ-VAE)
 
